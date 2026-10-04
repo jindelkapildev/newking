@@ -110,9 +110,29 @@ class CustomClient(commands.AutoShardedBot):
         self.emoji_hashes: collection_class = self.looper_db.clashking.emoji_hashes
         self.army_share: collection_class = self.looper_db.clashking.army_share
 
-        self.link_client: coc.ext.discordlinks.DiscordLinkClient = asyncio.get_event_loop().run_until_complete(
-            discordlinks.login(self._config.link_api_username, self._config.link_api_password)
-        )
+        # self.link_client: coc.ext.discordlinks.DiscordLinkClient = asyncio.get_event_loop().run_until_complete(
+        #     discordlinks.login(self._config.link_api_username, self._config.link_api_password)
+        # )
+        username = getattr(self._config, 'link_api_username', None)
+        password = getattr(self._config, 'link_api_password', None)
+
+        try:
+            if not username or not password:
+                raise ValueError("Missing Link API credentials")
+                
+            self.link_client: coc.ext.discordlinks.DiscordLinkClient = asyncio.get_event_loop().run_until_complete(
+                discordlinks.login(username, password)
+            )
+        except (TypeError, ValueError):
+            class DummyLinkClient:
+                async def get_link(self, *args, **kwargs): return None
+                async def get_links(self, *args, **kwargs): return []
+                async def get_linked_players(self, *args, **kwargs): return []
+                async def add_link(self, *args, **kwargs): return None
+                async def delete_link(self, *args, **kwargs): return None
+
+            self.link_client = DummyLinkClient()
+            print("WARNING: DiscordLink API credentials missing. Running with DummyLinkClient.")
         self.bot_stats: collection_class = self.looper_db.clashking.bot_stats
         self.clan_stats: collection_class = self.new_looper.clan_stats
         self.war_elo: collection_class = self.looper_db.looper.war_elo

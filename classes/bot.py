@@ -71,7 +71,8 @@ class CustomClient(commands.AutoShardedBot):
         self.ck_client: FamilyClient = None
         self.max_pool_size = 1 if config.is_custom else 100
 
-        self.looper_db = motor.motor_asyncio.AsyncIOMotorClient(self._config.stats_mongodb, compressors='snappy' if config.is_main else 'zlib')
+        stats_mongodb = getattr(self._config, 'stats_mongodb', None) or getattr(self._config, 'static_mongodb', None) or 'mongodb://localhost:27017'
+        self.looper_db = motor.motor_asyncio.AsyncIOMotorClient(stats_mongodb, compressors='snappy' if config.is_main else 'zlib')
 
         self.new_looper = self.looper_db.get_database('new_looper')
         self.stats = self.looper_db.get_database(name='stats')
@@ -110,29 +111,37 @@ class CustomClient(commands.AutoShardedBot):
         self.emoji_hashes: collection_class = self.looper_db.clashking.emoji_hashes
         self.army_share: collection_class = self.looper_db.clashking.army_share
 
-        # self.link_client: coc.ext.discordlinks.DiscordLinkClient = asyncio.get_event_loop().run_until_complete(
-        #     discordlinks.login(self._config.link_api_username, self._config.link_api_password)
-        # )
+        # Fallback to DummyLinkClient if linking credentials are not provided
         username = getattr(self._config, 'link_api_username', None)
         password = getattr(self._config, 'link_api_password', None)
 
         try:
             if not username or not password:
                 raise ValueError("Missing Link API credentials")
-                
+
             self.link_client: coc.ext.discordlinks.DiscordLinkClient = asyncio.get_event_loop().run_until_complete(
                 discordlinks.login(username, password)
             )
-        except (TypeError, ValueError):
+        except (TypeError, ValueError, Exception):
             class DummyLinkClient:
-                async def get_link(self, *args, **kwargs): return None
-                async def get_links(self, *args, **kwargs): return []
-                async def get_linked_players(self, *args, **kwargs): return []
-                async def add_link(self, *args, **kwargs): return None
-                async def delete_link(self, *args, **kwargs): return None
+                async def get_link(self, *args, **kwargs):
+                    return None
+
+                async def get_links(self, *args, **kwargs):
+                    return []
+
+                async def get_linked_players(self, *args, **kwargs):
+                    return []
+
+                async def add_link(self, *args, **kwargs):
+                    return None
+
+                async def delete_link(self, *args, **kwargs):
+                    return None
 
             self.link_client = DummyLinkClient()
             print("WARNING: DiscordLink API credentials missing. Running with DummyLinkClient.")
+
         self.bot_stats: collection_class = self.looper_db.clashking.bot_stats
         self.clan_stats: collection_class = self.new_looper.clan_stats
         self.war_elo: collection_class = self.looper_db.looper.war_elo
@@ -206,11 +215,13 @@ class CustomClient(commands.AutoShardedBot):
 
         self.loaded_emojis: dict = {}
 
+        redis_ip = getattr(self._config, 'redis_ip', '127.0.0.1') or '127.0.0.1'
+        redis_pw = getattr(self._config, 'redis_pw', None)
         self.redis = redis.Redis(
-            host=self._config.redis_ip,
+            host=redis_ip,
             port=6379,
             db=0,
-            password=self._config.redis_pw,
+            password=redis_pw,
             retry_on_timeout=True,
             max_connections=250,
             retry_on_error=[redis.ConnectionError],
@@ -561,7 +572,6 @@ class CustomClient(commands.AutoShardedBot):
             else:
                 if cache_data is None:
                     clashPlayer: coc.Player = await self.coc_client.get_player(player_tag)
-                    # await self.redis.set(clashPlayer.tag, ujson.dumps(clashPlayer._raw_data).encode('utf-8'), ex=120)
                 else:
                     clashPlayer = coc.Player(data=cache_data, client=self.coc_client)
             return clashPlayer
